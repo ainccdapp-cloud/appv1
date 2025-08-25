@@ -1,129 +1,186 @@
-// NCCD Type Definitions
+// lib/types.ts - Centralized type definitions
+
+export type NCCDLevel = 'Quality Differentiated Teaching Practice' | 'Supplementary' | 'Substantial' | 'Extensive'
+export type AdjustmentStatus = 'active' | 'completed' | 'discontinued'
+export type EvidenceCategory = 'Assessment' | 'Observation' | 'Work Sample' | 'Photo' | 'Video' | 'Report' | 'Other'
+export type LinkStatus = 'pending' | 'approved' | 'rejected'
+export type EvidenceQuality = 'Strong' | 'Moderate' | 'Weak'
+export type ProcessingStatus = 'idle' | 'uploading' | 'processing' | 'complete' | 'error'
 
 export interface Student {
-  id: string
+  studentId: string
   name: string
   year: string
-  school: string
-  dateOfBirth?: string
-  studentId?: string
+  classroom: string
+  primaryDisability?: string
+  secondaryDisabilities?: string[]
+  enrollmentDate: string
+  lastUpdated: string
 }
 
 export interface Adjustment {
   adjustmentId: string
-  studentId?: string
+  studentId: string
+  studentName?: string
   description: string
   category: 'Quality Differentiated Teaching Practice' | 'Supplementary' | 'Substantial' | 'Extensive'
   implementation: string
+  successCriteria: string
   responsibleStaff: string
-  nccdLevelIndicator: 'Quality Differentiated Teaching Practice' | 'Supplementary' | 'Substantial' | 'Extensive'
-  confidence: number // 0-100
+  nccdLevelIndicator: NCCDLevel
+  confidence: number
   subject?: string
-  frequency?: string
-  startDate?: string
-  endDate?: string
-  evidenceRequired?: string[]
-  status: 'active' | 'completed' | 'discontinued'
-  extractedFrom?: {
-    documentId: string
-    documentName: string
-    extractedAt: string
-  }
+  status: AdjustmentStatus
+  createdAt: string
+  lastModified: string
+  reviewDate?: string
+  isActive: boolean
 }
 
 export interface Evidence {
   evidenceId: string
-  studentId?: string
+  studentId: string
+  studentName?: string
   description: string
-  category: 'Assessment' | 'Observation' | 'Work Sample' | 'Photo' | 'Video' | 'Report' | 'Other'
+  category: EvidenceCategory
   outcome: string
   timeline: string
-  nccdLevelIndicator: 'Quality Differentiated Teaching Practice' | 'Supplementary' | 'Substantial' | 'Extensive'
-  confidence: number // 0-100
-  dateCollected?: string
+  nccdLevelIndicator: NCCDLevel
+  confidence: number
   subject?: string
-  staff?: string
-  fileInfo?: {
-    fileName: string
-    fileType: string
-    fileSize: number
-    filePath?: string
-  }
-  extractedFrom?: {
-    documentId: string
-    documentName: string
-    extractedAt: string
-  }
+  dateCollected: string
+  collectedBy: string
+  filePath?: string
+  fileType?: string
+  metadata?: Record<string, any>
 }
 
 export interface EvidenceLink {
   linkId: string
   adjustmentId: string
   evidenceId: string
-  confidence: number // 0-100
-  evidenceQuality: 'Strong' | 'Moderate' | 'Weak'
-  status: 'pending' | 'approved' | 'rejected' | 'modified'
-  connections: string[] // Array of connection explanations
+  confidence: number
+  evidenceQuality: EvidenceQuality
+  status: LinkStatus
+  connections: string[]
+  nccdRelevance: string
+  missingElements: string[]
   aiReasoning?: string
+  createdAt: string
   reviewedBy?: string
   reviewedAt?: string
   reviewNotes?: string
-  createdAt: string
-  updatedAt?: string
 }
 
-export interface NCCDLevel {
-  level: 'Quality Differentiated Teaching Practice' | 'Supplementary' | 'Substantial' | 'Extensive'
+export interface DashboardStats {
+  totalStudents: number
+  totalAdjustments: number
+  totalEvidence: number
+  totalLinks: number
+  pendingReviews: number
+  approvedLinks: number
+  rejectedLinks: number
+  completionRate: number
+  averageConfidence: number
+  lastUpdate: string
+}
+
+export interface TeacherSummary {
+  studentId: string
+  studentName: string
+  generatedAt: string
+  adjustments: Adjustment[]
+  linkedEvidence: EvidenceLink[]
+  overallConfidence: number
+  nccdCompliance: {
+    level: NCCDLevel
+    justification: string
+    recommendations: string[]
+    missingElements: string[]
+  }
+  missingEvidence: string[]
+  suggestedNextSteps: string[]
+  complianceScore: number
+}
+
+export interface FileWithPreview extends File {
+  id: string
+  status: ProcessingStatus
+  error?: string
+  extractedData?: any
+  uploadProgress?: number
+}
+
+export interface UploadResult {
+  success: boolean
+  documentType: string
+  filesProcessed: number
+  adjustments?: Adjustment[]
+  evidence?: Evidence[]
+  metadata: {
+    confidence: number
+    processingTime: number
+    errors: string[]
+    warnings: string[]
+  }
+}
+
+export interface ApiResponse<T = any> {
+  success: boolean
+  data?: T
+  error?: string
+  message?: string
+  timestamp: string
+}
+
+export interface FilterOptions {
+  studentId?: string
+  nccdLevel?: NCCDLevel
+  status?: AdjustmentStatus | LinkStatus
+  confidence?: { min: number; max: number }
+  dateRange?: { start: string; end: string }
+  subject?: string
+}
+
+export interface SearchResult {
+  type: 'adjustment' | 'evidence' | 'student'
+  id: string
+  title: string
   description: string
-  criteria: string[]
-  evidenceRequirements: string[]
+  relevance: number
 }
 
-export interface School {
-  id: string
-  name: string
-  state: string
-  sector: 'Government' | 'Catholic' | 'Independent'
-  postcode: string
+// Utility types
+export type SortDirection = 'asc' | 'desc'
+export type SortField = 'date' | 'confidence' | 'name' | 'status'
+
+export interface SortOptions {
+  field: SortField
+  direction: SortDirection
 }
 
-export interface User {
-  id: string
-  name: string
-  email: string
-  role: 'teacher' | 'coordinator' | 'admin'
-  schoolId: string
-}
-
-// API Response Types
-export interface DashboardData {
-  adjustments: Adjustment[]
-  evidence: Evidence[]
-  links: EvidenceLink[]
-  students?: Student[]
-  stats: {
-    totalStudents: number
-    totalAdjustments: number
-    totalEvidence: number
-    totalLinks: number
-    pendingReviews: number
-    approvedLinks: number
-    completionRate: number
+// Error types
+export class NCCDError extends Error {
+  constructor(
+    message: string,
+    public code: string,
+    public details?: Record<string, any>
+  ) {
+    super(message)
+    this.name = 'NCCDError'
   }
 }
 
-export interface LinkingRequest {
-  adjustments: Adjustment[]
-  evidence: Evidence[]
-  options?: {
-    minimumConfidence: number
-    includeWeakMatches: boolean
+export class ValidationError extends NCCDError {
+  constructor(message: string, public field: string, details?: Record<string, any>) {
+    super(message, 'VALIDATION_ERROR', details)
+    this.name = 'ValidationError'
   }
 }
 
-export interface LinkingResponse {
-  links: EvidenceLink[]
-  processingTime: number
-  totalCombinations: number
-  linksGenerated: number
+export class ProcessingError extends NCCDError {
+  constructor(message: string, details?: Record<string, any>) {
+    super(message, 'PROCESSING_ERROR', details)
+    this.name = 'ProcessingError'
+  }
 }
