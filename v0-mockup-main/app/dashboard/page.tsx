@@ -1,14 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { 
-  Loader2, 
   LinkIcon, 
   FileText, 
   ClipboardList, 
@@ -17,195 +15,129 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
-  RefreshCw
+  RefreshCw,
+  TrendingUp,
+  BarChart3
 } from "lucide-react"
 import Link from "next/link"
 
-// Types (would be imported from @/lib/types in production)
-interface Adjustment {
-  adjustmentId: string
-  studentId?: string
-  description: string
-  category: 'Quality Differentiated Teaching Practice' | 'Supplementary' | 'Substantial' | 'Extensive'
-  implementation: string
-  responsibleStaff: string
-  nccdLevelIndicator: 'Quality Differentiated Teaching Practice' | 'Supplementary' | 'Substantial' | 'Extensive'
-  confidence: number
-  subject?: string
-  status: 'active' | 'completed' | 'discontinued'
-}
+// Import our new hooks and components
+import { useData } from "@/hooks/useData"
+import { useEvidenceLinks } from "@/hooks/useEvidenceLinks"
+import { useSearch } from "@/hooks/useSearch"
+import { useNotifications } from "@/hooks/useNotifications"
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton"
+import { SearchFilterBar } from "@/components/ui/search-filter-bar"
+import { AdjustmentCard } from "@/components/ui/adjustment-card"
+import { EvidenceCard } from "@/components/ui/evidence-card"
+import { ProgressIndicator } from "@/components/ui/progress-indicator"
+import { EmptyState } from "@/components/ui/empty-state"
+import { NotificationToast } from "@/components/ui/notification-toast"
 
-interface Evidence {
-  evidenceId: string
-  studentId?: string
-  description: string
-  category: 'Assessment' | 'Observation' | 'Work Sample' | 'Photo' | 'Video' | 'Report' | 'Other'
-  outcome: string
-  timeline: string
-  nccdLevelIndicator: 'Quality Differentiated Teaching Practice' | 'Supplementary' | 'Substantial' | 'Extensive'
-  confidence: number
-  subject?: string
-}
-
-interface EvidenceLink {
-  linkId: string
-  adjustmentId: string
-  evidenceId: string
-  confidence: number
-  evidenceQuality: 'Strong' | 'Moderate' | 'Weak'
-  status: 'pending' | 'approved' | 'rejected'
-  connections: string[]
-  aiReasoning?: string
-  createdAt: string
-}
-
-interface DashboardStats {
-  totalStudents: number
-  totalAdjustments: number
-  totalEvidence: number
-  totalLinks: number
-  pendingReviews: number
-  approvedLinks: number
-  completionRate: number
-}
-
-export default function EnhancedDashboardPage() {
-  const [adjustments, setAdjustments] = useState<Adjustment[]>([])
-  const [evidence, setEvidence] = useState<Evidence[]>([])
-  const [evidenceLinks, setEvidenceLinks] = useState<EvidenceLink[]>([])
-  const [stats, setStats] = useState<DashboardStats>({
-    totalStudents: 0,
-    totalAdjustments: 0,
-    totalEvidence: 0,
-    totalLinks: 0,
-    pendingReviews: 0,
-    approvedLinks: 0,
-    completionRate: 0
-  })
+export default function ImprovedDashboardPage() {
+  const [selectedView, setSelectedView] = useState<'overview' | 'adjustments' | 'evidence' | 'links'>('overview')
   
-  const [isLinking, setIsLinking] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [linkingProgress, setLinkingProgress] = useState(0)
-  const [hasLinked, setHasLinked] = useState(false)
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  // Use our custom hooks
+  const {
+    adjustments,
+    evidence,
+    evidenceLinks,
+    stats,
+    isLoading,
+    error,
+    lastRefresh,
+    refresh,
+    setEvidenceLinks,
+    setStats
+  } = useData()
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  const {
+    isLinking,
+    linkingProgress,
+    error: linkingError,
+    generateLinks,
+    setError: setLinkingError
+  } = useEvidenceLinks()
 
-  const fetchData = async () => {
-    try {
-      setIsLoading(true)
-      setError(null)
-      
-      const response = await fetch("/api/data")
-      if (!response.ok) {
-        throw new Error(`Failed to fetch data: ${response.status}`)
-      }
-      
-      const data = await response.json()
-      setAdjustments(data.adjustments || [])
-      setEvidence(data.evidence || [])
-      setEvidenceLinks(data.links || [])
-      setStats(data.stats || stats)
-      setHasLinked(data.links?.length > 0)
-      setLastRefresh(new Date())
-      
-    } catch (error) {
-      console.error("Failed to fetch data:", error)
-      setError(error instanceof Error ? error.message : "Failed to load dashboard data")
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const {
+    notifications,
+    addNotification,
+    removeNotification
+  } = useNotifications()
+
+  // Search functionality for adjustments and evidence
+  const adjustmentSearch = useSearch(adjustments)
+  const evidenceSearch = useSearch(evidence)
 
   const handleLinking = async () => {
     if (adjustments.length === 0 || evidence.length === 0) {
-      setError("Both adjustments and evidence are required for linking")
+      addNotification({
+        type: 'warning',
+        title: 'Missing Data',
+        message: 'Both adjustments and evidence are required for linking'
+      })
       return
     }
 
-    setIsLinking(true)
-    setError(null)
-    setLinkingProgress(0)
-
-    // Progress simulation
-    const progressInterval = setInterval(() => {
-      setLinkingProgress(prev => Math.min(prev + 15, 90))
-    }, 500)
-
     try {
-      const response = await fetch("/api/link", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          adjustments,
-          evidence,
-        }),
-      })
-
-      clearInterval(progressInterval)
-      setLinkingProgress(100)
-
-      if (!response.ok) {
-        throw new Error(`Linking failed: ${response.status}`)
-      }
-
-      const linkedData = await response.json()
-      setEvidenceLinks(linkedData.links)
-      setHasLinked(true)
+      setLinkingError(null)
+      const newLinks = await generateLinks(adjustments, evidence)
       
-      // Update stats
+      setEvidenceLinks(newLinks)
       setStats(prev => ({
         ...prev,
-        totalLinks: linkedData.links.length,
-        pendingReviews: linkedData.links.filter((l: EvidenceLink) => l.status === 'pending').length
+        totalLinks: newLinks.length,
+        pendingReviews: newLinks.filter(l => l.status === 'pending').length
       }))
 
+      addNotification({
+        type: 'success',
+        title: 'Links Generated',
+        message: `Successfully generated ${newLinks.length} evidence links for review`
+      })
+
     } catch (error) {
-      console.error("Linking failed:", error)
-      setError(error instanceof Error ? error.message : "Failed to generate evidence links")
-      clearInterval(progressInterval)
-    } finally {
-      setIsLinking(false)
-      setTimeout(() => setLinkingProgress(0), 1000)
+      addNotification({
+        type: 'error',
+        title: 'Linking Failed',
+        message: error instanceof Error ? error.message : 'Failed to generate evidence links'
+      })
     }
   }
 
-  const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 80) return "text-green-600 dark:text-green-400"
-    if (confidence >= 60) return "text-yellow-600 dark:text-yellow-400"
-    return "text-red-600 dark:text-red-400"
+  const handleViewAdjustment = (adjustment: any) => {
+    addNotification({
+      type: 'info',
+      title: 'Adjustment Details',
+      message: `Viewing details for: ${adjustment.description.slice(0, 50)}...`
+    })
   }
 
-  const getQualityVariant = (quality: string) => {
-    switch (quality) {
-      case "Strong": return "default"
-      case "Moderate": return "secondary"
-      case "Weak": return "outline"
-      default: return "outline"
-    }
-  }
-
-  const getNCCDLevelColor = (level: string) => {
-    switch (level) {
-      case "Quality Differentiated Teaching Practice": return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-      case "Supplementary": return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-      case "Substantial": return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"
-      case "Extensive": return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-      default: return "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200"
-    }
+  const handleViewEvidence = (evidence: any) => {
+    addNotification({
+      type: 'info',
+      title: 'Evidence Details',
+      message: `Viewing details for: ${evidence.description.slice(0, 50)}...`
+    })
   }
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading dashboard...</p>
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto px-4 py-8">
+          <div className="max-w-7xl mx-auto space-y-6">
+            <LoadingSkeleton variant="text" className="h-8 w-64" />
+            <LoadingSkeleton variant="text" className="h-4 w-96" />
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <LoadingSkeleton key={i} variant="card" className="h-20" />
+              ))}
+            </div>
+            <div className="grid lg:grid-cols-2 gap-6">
+              <LoadingSkeleton variant="card" />
+              <LoadingSkeleton variant="card" />
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -213,6 +145,17 @@ export default function EnhancedDashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Notifications */}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        {notifications.map((notification) => (
+          <NotificationToast
+            key={notification.id}
+            {...notification}
+            onClose={removeNotification}
+          />
+        ))}
+      </div>
+
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
@@ -229,8 +172,8 @@ export default function EnhancedDashboardPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={fetchData} disabled={isLoading}>
-                <RefreshCw className="h-4 w-4 mr-1" />
+              <Button variant="ghost" size="sm" onClick={refresh} disabled={isLoading}>
+                <RefreshCw className={`h-4 w-4 mr-1 ${isLoading ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
               <Button asChild variant="outline">
@@ -243,16 +186,16 @@ export default function EnhancedDashboardPage() {
           </div>
 
           {/* Error Alert */}
-          {error && (
+          {(error || linkingError) && (
             <Alert className="mb-6" variant="destructive">
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
+              <AlertDescription>{error || linkingError}</AlertDescription>
             </Alert>
           )}
 
-          {/* Stats Overview */}
+          {/* Enhanced Stats Overview with Charts */}
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
-            <Card>
+            <Card className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2">
                   <Users className="h-4 w-4 text-blue-600" />
@@ -264,7 +207,7 @@ export default function EnhancedDashboardPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2">
                   <ClipboardList className="h-4 w-4 text-green-600" />
@@ -276,7 +219,7 @@ export default function EnhancedDashboardPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-purple-600" />
@@ -288,7 +231,7 @@ export default function EnhancedDashboardPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2">
                   <LinkIcon className="h-4 w-4 text-indigo-600" />
@@ -300,7 +243,7 @@ export default function EnhancedDashboardPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-orange-600" />
@@ -312,7 +255,7 @@ export default function EnhancedDashboardPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2">
                   <CheckCircle className="h-4 w-4 text-green-600" />
@@ -324,20 +267,46 @@ export default function EnhancedDashboardPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2">
-                  <div className="h-4 w-4 rounded-full bg-gradient-to-r from-green-500 to-blue-500" />
+                  <TrendingUp className="h-4 w-4 text-blue-600" />
                   <div>
                     <p className="text-2xl font-bold">{stats.completionRate}%</p>
                     <p className="text-xs text-muted-foreground">Complete</p>
+                    <ProgressIndicator 
+                      current={stats.completionRate} 
+                      total={100} 
+                      className="mt-1"
+                    />
                   </div>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Linking Action */}
+          {/* View Toggle */}
+          <div className="flex items-center gap-2 mb-6">
+            <div className="flex items-center gap-1 bg-muted p-1 rounded-lg">
+              {(['overview', 'adjustments', 'evidence', 'links'] as const).map((view) => (
+                <Button
+                  key={view}
+                  variant={selectedView === view ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setSelectedView(view)}
+                  className="text-xs"
+                >
+                  {view === 'overview' && <BarChart3 className="h-3 w-3 mr-1" />}
+                  {view === 'adjustments' && <ClipboardList className="h-3 w-3 mr-1" />}
+                  {view === 'evidence' && <FileText className="h-3 w-3 mr-1" />}
+                  {view === 'links' && <LinkIcon className="h-3 w-3 mr-1" />}
+                  {view.charAt(0).toUpperCase() + view.slice(1)}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* AI Linking Action - Always Visible */}
           <Card className="mb-8">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -351,13 +320,12 @@ export default function EnhancedDashboardPage() {
             <CardContent>
               <div className="space-y-4">
                 {isLinking && (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Analyzing evidence connections...</span>
-                      <span>{linkingProgress}%</span>
-                    </div>
-                    <Progress value={linkingProgress} className="w-full" />
-                  </div>
+                  <ProgressIndicator
+                    current={linkingProgress}
+                    total={100}
+                    label="Analyzing evidence connections..."
+                    className="mb-4"
+                  />
                 )}
 
                 <div className="flex items-center gap-4">
@@ -368,18 +336,18 @@ export default function EnhancedDashboardPage() {
                   >
                     {isLinking ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                         Analyzing Connections...
                       </>
                     ) : (
                       <>
                         <LinkIcon className="mr-2 h-4 w-4" />
-                        {hasLinked ? "Re-analyze Links" : "Generate Evidence Links"}
+                        {evidenceLinks.length > 0 ? "Re-analyze Links" : "Generate Evidence Links"}
                       </>
                     )}
                   </Button>
 
-                  {hasLinked && !isLinking && (
+                  {evidenceLinks.length > 0 && !isLinking && (
                     <Button asChild variant="outline">
                       <Link href="/review">
                         Review Links ({stats.pendingReviews} pending)
@@ -409,158 +377,233 @@ export default function EnhancedDashboardPage() {
             </CardContent>
           </Card>
 
-          <div className="grid lg:grid-cols-2 gap-8">
-            {/* Adjustments */}
+          {/* Dynamic Content Based on Selected View */}
+          {selectedView === 'overview' && (
+            <div className="grid lg:grid-cols-2 gap-8">
+              {/* Adjustments Overview */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>Recent Adjustments</span>
+                    <Badge variant="outline">{adjustments.length}</Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    Latest learning plan adjustments extracted from uploaded documents
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {adjustments.length > 0 ? (
+                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                      {adjustments.slice(0, 3).map((adjustment) => {
+                        const linkedCount = evidenceLinks.filter(l => 
+                          l.adjustmentId === adjustment.adjustmentId && l.status === 'approved'
+                        ).length
+                        return (
+                          <AdjustmentCard
+                            key={adjustment.adjustmentId}
+                            adjustment={adjustment}
+                            linkedEvidenceCount={linkedCount}
+                            onView={handleViewAdjustment}
+                            compact
+                          />
+                        )
+                      })}
+                      {adjustments.length > 3 && (
+                        <div className="text-center pt-2 border-t">
+                          <Button asChild variant="outline" size="sm">
+                            <Link href="#" onClick={() => setSelectedView('adjustments')}>
+                              View All {adjustments.length} Adjustments
+                            </Link>
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <EmptyState
+                      icon={<ClipboardList className="h-16 w-16" />}
+                      title="No Adjustments Found"
+                      description="Upload learning plans or IEPs to extract student adjustments"
+                      action={{
+                        label: "Upload Learning Plan",
+                        onClick: () => window.location.href = '/upload'
+                      }}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Evidence Overview */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>Recent Evidence</span>
+                    <Badge variant="outline">{evidence.length}</Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    Latest evidence items extracted from uploaded documents
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {evidence.length > 0 ? (
+                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                      {evidence.slice(0, 3).map((item) => {
+                        const linkedCount = evidenceLinks.filter(l => 
+                          l.evidenceId === item.evidenceId && l.status === 'approved'
+                        ).length
+                        return (
+                          <EvidenceCard
+                            key={item.evidenceId}
+                            evidence={item}
+                            linkedAdjustmentCount={linkedCount}
+                            onView={handleViewEvidence}
+                            compact
+                          />
+                        )
+                      })}
+                      {evidence.length > 3 && (
+                        <div className="text-center pt-2 border-t">
+                          <Button asChild variant="outline" size="sm">
+                            <Link href="#" onClick={() => setSelectedView('evidence')}>
+                              View All {evidence.length} Evidence Items
+                            </Link>
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <EmptyState
+                      icon={<FileText className="h-16 w-16" />}
+                      title="No Evidence Found"
+                      description="Upload evidence documents, photos, or work samples"
+                      action={{
+                        label: "Upload Evidence",
+                        onClick: () => window.location.href = '/upload'
+                      }}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {selectedView === 'adjustments' && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span>Learning Plan Adjustments</span>
-                  <Badge variant="outline">{adjustments.length}</Badge>
+                  <Badge variant="outline">{adjustmentSearch.filteredCount} of {adjustmentSearch.totalItems}</Badge>
                 </CardTitle>
                 <CardDescription>
                   AI-extracted adjustments from uploaded learning plans and IEPs
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {adjustments.length > 0 ? (
-                  <div className="space-y-4 max-h-96 overflow-y-auto">
-                    {adjustments.map((adjustment) => (
-                      <div key={adjustment.adjustmentId} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
-                        <div className="flex items-start justify-between mb-3">
-                          <h4 className="font-medium text-sm leading-5">{adjustment.description}</h4>
-                          <div className="flex flex-col gap-1">
-                            <Badge 
-                              className={`text-xs ${getNCCDLevelColor(adjustment.nccdLevelIndicator)} border-0`}
-                            >
-                              {adjustment.nccdLevelIndicator === 'Quality Differentiated Teaching Practice' ? 'QDTP' : adjustment.nccdLevelIndicator}
-                            </Badge>
-                            <Badge variant="outline" className="text-xs">
-                              {adjustment.status}
-                            </Badge>
-                          </div>
-                        </div>
+                <SearchFilterBar
+                  searchQuery={adjustmentSearch.searchQuery}
+                  onSearchChange={adjustmentSearch.setSearchQuery}
+                  filters={adjustmentSearch.filters}
+                  onFilterChange={adjustmentSearch.updateFilter}
+                  sortOptions={adjustmentSearch.sortOptions}
+                  onSortChange={adjustmentSearch.updateSort}
+                  onClearFilters={adjustmentSearch.clearFilters}
+                  className="mb-6"
+                />
 
-                        <div className="space-y-2 text-sm text-muted-foreground">
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <span className="font-medium text-foreground">Implementation:</span>
-                              <p className="text-xs mt-1">{adjustment.implementation}</p>
-                            </div>
-                            <div>
-                              <span className="font-medium text-foreground">Responsible Staff:</span>
-                              <p className="text-xs mt-1">{adjustment.responsibleStaff}</p>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center justify-between pt-2 border-t">
-                            <div className="flex items-center gap-2">
-                              {adjustment.subject && (
-                                <Badge variant="secondary" className="text-xs">
-                                  {adjustment.subject}
-                                </Badge>
-                              )}
-                              <span className={`text-xs font-medium ${getConfidenceColor(adjustment.confidence)}`}>
-                                {adjustment.confidence}% confidence
-                              </span>
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              ID: {adjustment.adjustmentId}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                {adjustmentSearch.filteredAndSortedItems.length > 0 ? (
+                  <div className="space-y-4">
+                    {adjustmentSearch.filteredAndSortedItems.map((adjustment) => {
+                      const linkedCount = evidenceLinks.filter(l => 
+                        l.adjustmentId === adjustment.adjustmentId && l.status === 'approved'
+                      ).length
+                      return (
+                        <AdjustmentCard
+                          key={adjustment.adjustmentId}
+                          adjustment={adjustment}
+                          linkedEvidenceCount={linkedCount}
+                          onView={handleViewAdjustment}
+                        />
+                      )
+                    })}
                   </div>
                 ) : (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <ClipboardList className="h-16 w-16 mx-auto mb-4 opacity-30" />
-                    <h3 className="text-lg font-medium mb-2">No Adjustments Found</h3>
-                    <p className="text-sm mb-4">Upload learning plans or IEPs to extract student adjustments</p>
-                    <Button asChild variant="outline" size="sm">
-                      <Link href="/upload">Upload Learning Plan</Link>
-                    </Button>
-                  </div>
+                  <EmptyState
+                    icon={<ClipboardList className="h-16 w-16" />}
+                    title="No Adjustments Found"
+                    description={adjustmentSearch.searchQuery || Object.keys(adjustmentSearch.filters).length > 0 
+                      ? "No adjustments match your search criteria" 
+                      : "Upload learning plans or IEPs to extract student adjustments"}
+                    action={{
+                      label: adjustmentSearch.searchQuery || Object.keys(adjustmentSearch.filters).length > 0 
+                        ? "Clear Filters" : "Upload Learning Plan",
+                      onClick: adjustmentSearch.searchQuery || Object.keys(adjustmentSearch.filters).length > 0 
+                        ? adjustmentSearch.clearFilters : () => window.location.href = '/upload'
+                    }}
+                  />
                 )}
               </CardContent>
             </Card>
+          )}
 
-            {/* Evidence */}
+          {selectedView === 'evidence' && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span>Evidence Items</span>
-                  <Badge variant="outline">{evidence.length}</Badge>
+                  <Badge variant="outline">{evidenceSearch.filteredCount} of {evidenceSearch.totalItems}</Badge>
                 </CardTitle>
                 <CardDescription>
                   AI-extracted evidence from uploaded documents and photos
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {evidence.length > 0 ? (
-                  <div className="space-y-4 max-h-96 overflow-y-auto">
-                    {evidence.map((item) => (
-                      <div key={item.evidenceId} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
-                        <div className="flex items-start justify-between mb-3">
-                          <h4 className="font-medium text-sm leading-5">{item.description}</h4>
-                          <div className="flex flex-col gap-1">
-                            <Badge 
-                              className={`text-xs ${getNCCDLevelColor(item.nccdLevelIndicator)} border-0`}
-                            >
-                              {item.nccdLevelIndicator === 'Quality Differentiated Teaching Practice' ? 'QDTP' : item.nccdLevelIndicator}
-                            </Badge>
-                            <Badge variant="secondary" className="text-xs">
-                              {item.category}
-                            </Badge>
-                          </div>
-                        </div>
+                <SearchFilterBar
+                  searchQuery={evidenceSearch.searchQuery}
+                  onSearchChange={evidenceSearch.setSearchQuery}
+                  filters={evidenceSearch.filters}
+                  onFilterChange={evidenceSearch.updateFilter}
+                  sortOptions={evidenceSearch.sortOptions}
+                  onSortChange={evidenceSearch.updateSort}
+                  onClearFilters={evidenceSearch.clearFilters}
+                  className="mb-6"
+                />
 
-                        <div className="space-y-2 text-sm text-muted-foreground">
-                          <div>
-                            <span className="font-medium text-foreground">Outcome:</span>
-                            <p className="text-xs mt-1">{item.outcome}</p>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <span className="font-medium text-foreground">Timeline:</span>
-                              <p className="text-xs mt-1">{item.timeline}</p>
-                            </div>
-                            {item.subject && (
-                              <div>
-                                <span className="font-medium text-foreground">Subject:</span>
-                                <p className="text-xs mt-1">{item.subject}</p>
-                              </div>
-                            )}
-                          </div>
-                          
-                          <div className="flex items-center justify-between pt-2 border-t">
-                            <span className={`text-xs font-medium ${getConfidenceColor(item.confidence)}`}>
-                              {item.confidence}% confidence
-                            </span>
-                            <div className="text-xs text-muted-foreground">
-                              ID: {item.evidenceId}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                {evidenceSearch.filteredAndSortedItems.length > 0 ? (
+                  <div className="space-y-4">
+                    {evidenceSearch.filteredAndSortedItems.map((item) => {
+                      const linkedCount = evidenceLinks.filter(l => 
+                        l.evidenceId === item.evidenceId && l.status === 'approved'
+                      ).length
+                      return (
+                        <EvidenceCard
+                          key={item.evidenceId}
+                          evidence={item}
+                          linkedAdjustmentCount={linkedCount}
+                          onView={handleViewEvidence}
+                        />
+                      )
+                    })}
                   </div>
                 ) : (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <FileText className="h-16 w-16 mx-auto mb-4 opacity-30" />
-                    <h3 className="text-lg font-medium mb-2">No Evidence Found</h3>
-                    <p className="text-sm mb-4">Upload evidence documents, photos, or work samples</p>
-                    <Button asChild variant="outline" size="sm">
-                      <Link href="/upload">Upload Evidence</Link>
-                    </Button>
-                  </div>
+                  <EmptyState
+                    icon={<FileText className="h-16 w-16" />}
+                    title="No Evidence Found"
+                    description={evidenceSearch.searchQuery || Object.keys(evidenceSearch.filters).length > 0 
+                      ? "No evidence matches your search criteria" 
+                      : "Upload evidence documents, photos, or work samples"}
+                    action={{
+                      label: evidenceSearch.searchQuery || Object.keys(evidenceSearch.filters).length > 0 
+                        ? "Clear Filters" : "Upload Evidence",
+                      onClick: evidenceSearch.searchQuery || Object.keys(evidenceSearch.filters).length > 0 
+                        ? evidenceSearch.clearFilters : () => window.location.href = '/upload'
+                    }}
+                  />
                 )}
               </CardContent>
             </Card>
-          </div>
+          )}
 
-          {/* Evidence Links */}
-          {evidenceLinks.length > 0 && (
-            <Card className="mt-8">
+          {selectedView === 'links' && evidenceLinks.length > 0 && (
+            <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span>AI-Generated Evidence Links</span>
@@ -574,10 +617,25 @@ export default function EnhancedDashboardPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4 max-h-96 overflow-y-auto">
-                  {evidenceLinks.map((link, index) => {
+                <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                  {evidenceLinks.slice(0, 5).map((link, index) => {
                     const adjustment = adjustments.find((a) => a.adjustmentId === link.adjustmentId)
                     const evidenceItem = evidence.find((e) => e.evidenceId === link.evidenceId)
+
+                    const getQualityVariant = (quality: string) => {
+                      switch (quality) {
+                        case "Strong": return "default"
+                        case "Moderate": return "secondary"
+                        case "Weak": return "outline"
+                        default: return "outline"
+                      }
+                    }
+
+                    const getConfidenceColor = (confidence: number) => {
+                      if (confidence >= 80) return "text-green-600 dark:text-green-400"
+                      if (confidence >= 60) return "text-yellow-600 dark:text-yellow-400"
+                      return "text-red-600 dark:text-red-400"
+                    }
 
                     return (
                       <div key={link.linkId} className="border rounded-lg p-4 hover:bg-muted/25 transition-colors">
@@ -605,52 +663,28 @@ export default function EnhancedDashboardPage() {
                         <div className="grid md:grid-cols-2 gap-4 text-sm mb-3">
                           <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-md">
                             <p className="font-medium text-blue-900 dark:text-blue-100 mb-1">📋 Adjustment:</p>
-                            <p className="text-blue-700 dark:text-blue-300 text-xs leading-relaxed">
+                            <p className="text-blue-700 dark:text-blue-300 text-xs leading-relaxed line-clamp-2">
                               {adjustment?.description || 'Adjustment not found'}
                             </p>
-                            {adjustment && (
-                              <Badge className={`mt-2 text-xs ${getNCCDLevelColor(adjustment.nccdLevelIndicator)} border-0`}>
-                                {adjustment.nccdLevelIndicator === 'Quality Differentiated Teaching Practice' ? 'QDTP' : adjustment.nccdLevelIndicator}
-                              </Badge>
-                            )}
                           </div>
                           <div className="p-3 bg-green-50 dark:bg-green-950/20 rounded-md">
                             <p className="font-medium text-green-900 dark:text-green-100 mb-1">📄 Evidence:</p>
-                            <p className="text-green-700 dark:text-green-300 text-xs leading-relaxed">
+                            <p className="text-green-700 dark:text-green-300 text-xs leading-relaxed line-clamp-2">
                               {evidenceItem?.description || 'Evidence not found'}
                             </p>
-                            {evidenceItem && (
-                              <Badge className={`mt-2 text-xs ${getNCCDLevelColor(evidenceItem.nccdLevelIndicator)} border-0`}>
-                                {evidenceItem.nccdLevelIndicator === 'Quality Differentiated Teaching Practice' ? 'QDTP' : evidenceItem.nccdLevelIndicator}
-                              </Badge>
-                            )}
                           </div>
                         </div>
 
-                        <Separator className="my-3" />
-
-                        <div className="text-sm">
-                          <p className="font-medium mb-2 text-foreground">🔗 Connection Analysis:</p>
-                          <ul className="text-muted-foreground space-y-1 text-xs">
-                            {link.connections.map((connection, i) => (
-                              <li key={i} className="flex items-start gap-2">
-                                <span className="text-primary mt-1">•</span>
-                                <span className="leading-relaxed">{connection}</span>
-                              </li>
-                            ))}
-                          </ul>
-                          {link.aiReasoning && (
-                            <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
-                              <span className="font-medium">AI Analysis:</span> {link.aiReasoning}
-                            </div>
-                          )}
+                        <div className="text-xs text-muted-foreground">
+                          <strong>Connection:</strong> {link.connections[0]}
+                          {link.connections.length > 1 && ` (+${link.connections.length - 1} more)`}
                         </div>
                       </div>
                     )
                   })}
                 </div>
 
-                {evidenceLinks.length > 3 && (
+                {evidenceLinks.length > 5 && (
                   <div className="text-center pt-4 border-t">
                     <Button asChild variant="outline">
                       <Link href="/review">
@@ -686,7 +720,7 @@ export default function EnhancedDashboardPage() {
                   
                   {adjustments.length > 0 && (
                     <Button asChild variant="outline" className="justify-start h-auto p-4">
-                      <Link href="/reports">
+                      <Link href="/summary">
                         <div className="text-left">
                           <div className="font-medium">Generate Reports</div>
                           <div className="text-sm opacity-70">Create NCCD compliance reports</div>
